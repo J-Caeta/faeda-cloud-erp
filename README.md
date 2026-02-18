@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/diagrama-arquitetura.png" width="700"/>
+  <img src="assets/Tela_registros.jpg" width="700"/>
 </p>
 O projeto aplica princípios de arquitetura de software corporativa em um ambiente low-code, estruturando separação de camadas, regras de negócio, controle de integridade e automação financeira.
 
