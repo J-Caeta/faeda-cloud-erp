@@ -1,7 +1,13 @@
 # Faêda Cloud ERP
 
-Sistema de gestão financeira e CRM de alunos desenvolvido para a **Faêda Consultoria Esportiva**, construído integralmente em ambiente Google Workspace utilizando Google Sheets e Google Apps Script.
+<p align="center">
+  <strong>Mini-ERP em Nuvem desenvolvido com Google Sheets + Apps Script</strong><br>
+  Arquitetura distribuída • Regras de negócio robustas • Automação financeira
+</p>
 
+<p align="center">
+  <img src="assets/diagrama-arquitetura.png" width="700"/>
+</p>
 O projeto aplica princípios de arquitetura de software corporativa em um ambiente low-code, estruturando separação de camadas, regras de negócio, controle de integridade e automação financeira.
 
 ---
