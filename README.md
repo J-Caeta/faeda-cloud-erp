@@ -4,7 +4,9 @@
   <strong>Mini-ERP em Nuvem desenvolvido com Google Sheets + Apps Script</strong><br>
   Arquitetura distribuída • Regras de negócio robustas • Automação financeira
 </p>
+<p align="center">
 O projeto aplica princípios de arquitetura de software corporativa em um ambiente low-code, estruturando separação de camadas, regras de negócio, controle de integridade e automação financeira.
+</p>
 
 ---
 
