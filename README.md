@@ -103,3 +103,10 @@ A robustez não está na ferramenta, mas na modelagem, estrutura e decisões té
 - LockService
 - Utilities (UUID)
 - JavaScript
+
+- ## 📚 Documentação Técnica
+
+- [Arquitetura do Sistema](docs/arquitetura.md)
+- [Modelo de Dados](docs/modelo-de-dados.md)
+- [Regras de Negócio](docs/regras-de-negocio.md)
+
