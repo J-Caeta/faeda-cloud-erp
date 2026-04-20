@@ -1,0 +1,265 @@
+function gerarRelatorioMensalPDF() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // --- 1. Pergunta qual o mês ---
+  const resposta = ui.prompt(
+    'Gerar Relatório Executivo', 
+    'Digite o mês para fechar o caixa (ex: janeiro):', 
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (resposta.getSelectedButton() !== ui.Button.OK) return;
+  
+  const mesAlvo = resposta.getResponseText().toLowerCase().trim();
+  if (mesAlvo === "") {
+    ui.alert("Por favor, digite o nome de um mês.");
+    return;
+  }
+
+  // --- CONFIGURAÇÕES DE ID ---
+  const props = PropertiesService.getScriptProperties();
+    const ID_FINANCEIRO = props.getProperty("ID_BD_FINANCEIRO");
+    const ID_DESPESAS = props.getProperty("ID_DESPESAS_FAEDA");
+  
+  // --- CONFIGURAÇÃO DAS COLUNAS ---
+  // A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7 ...
+  const INDEX_VALOR_ENTRADA = 5;    // Coluna F
+  const INDEX_STATUS_ENTRADA = 6;   // Coluna G
+  
+  const INDEX_DATA_DESPESA = 0;     // Coluna A
+  const INDEX_DESCRICAO = 2;        // <--- NOVA: Coluna C (Descrição do que foi gasto)
+  const INDEX_VALOR_DESPESA = 4;    // Coluna E
+  const INDEX_NATUREZA = 6;         // Coluna G
+
+  // ======================================================
+  // 2. PROCESSAR ENTRADAS (RECEITA BRUTA)
+  // ======================================================
+  let receitaTotal = 0;
+  let qtdVendas = 0;
+  
+  try {
+    const ssFin = SpreadsheetApp.openById(ID_FINANCEIRO);
+    const abaMes = ssFin.getSheetByName(mesAlvo);
+    
+    if (!abaMes) {
+      ui.alert(`ERRO: Aba "${mesAlvo}" não encontrada no Financeiro.`);
+      return;
+    }
+    
+    const dadosFin = abaMes.getDataRange().getValues();
+    
+    for (let i = 1; i < dadosFin.length; i++) {
+      const valor = dadosFin[i][INDEX_VALOR_ENTRADA];
+      const status = String(dadosFin[i][INDEX_STATUS_ENTRADA]).toLowerCase().trim();
+      
+      if (status === "pago" && !isNaN(valor) && valor !== "") {
+        receitaTotal += Number(valor);
+        qtdVendas++;
+      }
+    }
+  } catch (e) {
+    ui.alert("Erro no Financeiro: " + e); return;
+  }
+
+  // ======================================================
+  // 3. PROCESSAR SAÍDAS (SEGREGADAS + DESTAQUE)
+  // ======================================================
+  let despFaeda = 0;      
+  let despPessoal = 0;    
+  let qtdDespFaeda = 0;
+  let qtdDespPessoal = 0;
+
+  // Variáveis para rastrear a maior despesa
+  let maiorDespesa = {
+    valor: 0,
+    nome: "Nenhuma despesa registrada",
+    data: "",
+    tipo: ""
+  };
+  
+  try {
+    const ssDesp = SpreadsheetApp.openById(ID_DESPESAS);
+    const abaDesp = ssDesp.getSheets()[0]; 
+    const dadosDesp = abaDesp.getDataRange().getValues();
+    
+    const mesesMap = {
+      "janeiro": 0, "fevereiro": 1, "março": 2, "abril": 3, "maio": 4, "junho": 5,
+      "julho": 6, "agosto": 7, "setembro": 8, "outubro": 9, "novembro": 10, "dezembro": 11
+    };
+    const mesNumero = mesesMap[mesAlvo];
+
+    if (mesNumero === undefined) { ui.alert("Mês inválido."); return; }
+
+    for (let i = 1; i < dadosDesp.length; i++) {
+      const dataRaw = dadosDesp[i][INDEX_DATA_DESPESA];
+      const valorRaw = Number(dadosDesp[i][INDEX_VALOR_DESPESA] || 0);
+      const naturezaRaw = String(dadosDesp[i][INDEX_NATUREZA]).toLowerCase().trim();
+      const descricaoRaw = String(dadosDesp[i][INDEX_DESCRICAO]); // Pega o nome
+      
+      if (dataRaw instanceof Date && dataRaw.getMonth() === mesNumero) {
+        
+        // LÓGICA DE SEGREGAÇÃO
+        let ehPessoal = false;
+        if (naturezaRaw.includes("pessoal") || naturezaRaw.includes("flavinho") || naturezaRaw.includes("casa")) {
+          despPessoal += valorRaw;
+          qtdDespPessoal++;
+          ehPessoal = true;
+        } else {
+          despFaeda += valorRaw;
+          qtdDespFaeda++;
+        }
+
+        // --- LÓGICA DO DESTAQUE (Maior Valor) ---
+        if (valorRaw > maiorDespesa.valor) {
+          maiorDespesa.valor = valorRaw;
+          maiorDespesa.nome = descricaoRaw;
+          maiorDespesa.data = dataRaw;
+          maiorDespesa.tipo = ehPessoal ? "Pessoal" : "Faêda";
+        }
+      }
+    }
+  } catch (e) {
+    ui.alert("Erro nas Despesas: " + e); return;
+  }
+
+  // ======================================================
+  // 4. INDICADORES FINANCEIROS
+  // ======================================================
+  const totalSaidas = despFaeda + despPessoal;
+  const lucroOperacional = receitaTotal - despFaeda; 
+  const saldoFinal = lucroOperacional - despPessoal; 
+  
+  // KPIs
+  const ticketMedio = qtdVendas > 0 ? (receitaTotal / qtdVendas) : 0;
+  const margemOperacional = receitaTotal > 0 ? ((lucroOperacional / receitaTotal) * 100) : 0;
+  const taxaRetirada = receitaTotal > 0 ? ((despPessoal / receitaTotal) * 100) : 0;
+
+  // Formatação
+  const formatBRL = (v) => v.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+  const formatPCT = (v) => v.toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
+  const formatDate = (d) => d ? d.toLocaleDateString('pt-BR') : "-";
+  
+  // Cores
+  const corOperacional = lucroOperacional >= 0 ? "#2e7d32" : "#c62828";
+  const corFinal = saldoFinal >= 0 ? "#1565c0" : "#d32f2f";
+  const corRetirada = taxaRetirada > 50 ? "#c62828" : "#333";
+
+  // ======================================================
+  // 5. HTML DO RELATÓRIO EXECUTIVO
+  // ======================================================
+  const htmlTemplate = `
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; padding: 20px;">
+      
+      <div style="text-align: center; border-bottom: 3px solid #333; padding-bottom: 20px; margin-bottom: 30px;">
+        <h1 style="margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 1px;">Relatório de Gestão Financeira</h1>
+        <p style="margin: 5px 0; color: #666; font-size: 16px;">Competência: <b>${mesAlvo.toUpperCase()}</b></p>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+        <div style="width: 32%; background: #e8f5e9; padding: 15px; border-radius: 8px; border: 1px solid #c8e6c9;">
+          <h4 style="margin: 0; color: #2e7d32; font-size: 12px; text-transform: uppercase;">Receita Bruta</h4>
+          <p style="font-size: 22px; font-weight: bold; margin: 10px 0; color: #1b5e20;">${formatBRL(receitaTotal)}</p>
+          <span style="font-size: 11px; color: #555;">${qtdVendas} recebimentos</span>
+        </div>
+        
+        <div style="width: 32%; background: #fff3e0; padding: 15px; border-radius: 8px; border: 1px solid #ffe0b2;">
+          <h4 style="margin: 0; color: #ef6c00; font-size: 12px; text-transform: uppercase;">Desp. Faêda</h4>
+          <p style="font-size: 22px; font-weight: bold; margin: 10px 0; color: #e65100;">${formatBRL(despFaeda)}</p>
+          <span style="font-size: 11px; color: #555;">${qtdDespFaeda} contas da empresa</span>
+        </div>
+
+        <div style="width: 32%; background: #ffebee; padding: 15px; border-radius: 8px; border: 1px solid #ffcdd2;">
+          <h4 style="margin: 0; color: #c62828; font-size: 12px; text-transform: uppercase;"> Despesas Pessoais</h4>
+          <p style="font-size: 22px; font-weight: bold; margin: 10px 0; color: #b71c1c;">${formatBRL(despPessoal)}</p>
+          <span style="font-size: 11px; color: #555;">${qtdDespPessoal} contas pessoais</span>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px;">
+        <div style="flex: 1; background: #f8f9fa; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #dee2e6;">
+          <p style="margin: 0; font-size: 10px; color: #666; text-transform: uppercase;">Ticket Médio</p>
+          <p style="margin: 5px 0; font-size: 16px; font-weight: bold;">${formatBRL(ticketMedio)}</p>
+        </div>
+        <div style="flex: 1; background: #f8f9fa; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #dee2e6;">
+          <p style="margin: 0; font-size: 10px; color: #666; text-transform: uppercase;">Margem Operacional</p>
+          <p style="margin: 5px 0; font-size: 16px; font-weight: bold; color: ${margemOperacional > 0 ? '#2e7d32' : '#c62828'}">${formatPCT(margemOperacional)}</p>
+        </div>
+        <div style="flex: 1; background: #f8f9fa; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #dee2e6;">
+          <p style="margin: 0; font-size: 10px; color: #666; text-transform: uppercase;">Peso das Desp. Pessoais</p>
+          <p style="margin: 5px 0; font-size: 16px; font-weight: bold; color: ${corRetirada};">${formatPCT(taxaRetirada)}</p>
+        </div>
+      </div>
+
+      <div style="background: #fff8e1; border-left: 5px solid #ffc107; padding: 15px; margin-bottom: 30px; border-radius: 4px;">
+        <h4 style="margin: 0 0 10px 0; color: #f57f17; font-size: 14px; text-transform: uppercase; display: flex; align-items: center;">
+          ⚠️ &nbsp; Item de Maior Impacto no Mês
+        </h4>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <p style="margin: 0; font-size: 16px; font-weight: bold; color: #333;">${maiorDespesa.nome}</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Data: ${formatDate(maiorDespesa.data)} | Origem: ${maiorDespesa.tipo}</p>
+          </div>
+          <div style="text-align: right;">
+            <p style="margin: 0; font-size: 20px; font-weight: bold; color: #d32f2f;">${formatBRL(maiorDespesa.valor)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 25px;">
+        <h3 style="margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px; font-size: 16px; color: #444;">Demonstrativo do Resultado</h3>
+        
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 10px 0;">(+) Faturamento Total</td>
+            <td style="text-align: right; font-weight: bold;">${formatBRL(receitaTotal)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #eee; color: #d32f2f;">
+            <td style="padding: 10px 0;">(-) Custos & Despesas Faêda</td>
+            <td style="text-align: right;">${formatBRL(despFaeda)}</td>
+          </tr>
+          <tr style="background-color: #f1f8e9; font-weight: bold;">
+            <td style="padding: 12px 0; color: #2e7d32;">(=) RESULTADO OPERACIONAL (Lucro da Empresa)</td>
+            <td style="text-align: right; color: ${corOperacional}; font-size: 16px;">${formatBRL(lucroOperacional)}</td>
+          </tr>
+          <tr><td colspan="2" style="height: 15px;"></td></tr>
+          <tr style="border-bottom: 1px solid #eee; color: #c62828;">
+            <td style="padding: 10px 0;">(-) Gastos Pessoais</td>
+            <td style="text-align: right;">${formatBRL(despPessoal)}</td>
+          </tr>
+           <tr style="background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196f3;">
+            <td style="padding: 15px 0; color: #1565c0;">(=) SALDO FINAL EM CAIXA</td>
+            <td style="text-align: right; color: ${corFinal}; font-size: 18px;">${formatBRL(saldoFinal)}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-top: 40px; text-align: center; font-size: 11px; color: #999;">
+        <p>Este documento foi gerado automaticamente pelo Sistema de Gestão Faêda, desenvolvido por Jhonata Caetano.</p>
+        <p>Data de emissão: ${new Date().toLocaleString('pt-BR')}</p>
+      </div>
+    </div>
+  `;
+
+  // ======================================================
+  // 6. GERAR PDF E ENVIAR
+  // ======================================================
+  const nomeArquivo = `Relatorio_Gestao_${mesAlvo}.pdf`;
+  const blob = Utilities.newBlob(htmlTemplate, MimeType.HTML, `temp.html`);
+  const pdf = blob.getAs(MimeType.PDF).setName(nomeArquivo);
+  
+  DriveApp.createFile(pdf); // Salva backup
+  
+  MailApp.sendEmail({
+    to: "faedaflavio@gmail.com",
+    subject: `📊 Relatório Gerencial: ${mesAlvo.toUpperCase()}`,
+    htmlBody: `
+      <h3>Fala, Flavinho!</h3>
+      <p>Aqui está o relatório completo tudo o que tu registrou no mês de <b>${mesAlvo}</b>.</p>
+      <p><b>Destaque do Mês:</b> A despesa de maior impacto foi <b>${maiorDespesa.nome}</b> no valor de <b>${formatBRL(maiorDespesa.valor)}</b>.</p>
+      <p>Confira os detalhes no PDF.</p>
+    `,
+    attachments: [pdf]
+  });
+
+  ui.alert(`Relatório de ${mesAlvo} gerado e enviado com sucesso!`);
+}

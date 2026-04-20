@@ -1,0 +1,93 @@
+function processarNovoEnvio(e) {
+  const lock = LockService.getScriptLock();
+
+  try {
+    lock.waitLock(10000);
+
+    const respostas = e.namedValues || {};
+    const valores = e.values || [];
+
+    // 🕒 Data do Forms
+    const dataCadastro = valores[0] || new Date();
+
+    // 🔹 Campos do Forms
+    const nome = respostas['Nome do Aluno']?.[0]?.trim() || "";
+    const email = respostas['E-mail']?.[0]?.trim() || "";
+    const telefone = respostas['Telefone']?.[0]?.trim() || "";
+    const diaVencimento = respostas['Dia de vencimento']?.[0] || "";
+    const plano = respostas['Plano']?.[0] || "";
+    const valor = respostas['Valor do Plano']?.[0] || "";
+    const tipo = respostas['Tipo de acompanhamento']?.[0] || "";
+    const observacoes = respostas['Observações']?.[0] || "";
+
+    if (!nome) return;
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName("ALUNOS ATIVOS");
+
+    if (!aba) return;
+
+    const dados = aba.getDataRange().getValues();
+
+    // 🔒 Normalizador
+    const normalizar = (t) =>
+      String(t || "")
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
+    const nomeBusca = normalizar(nome);
+
+    // 🚫 Evita duplicidade
+    for (let i = 1; i < dados.length; i++) {
+      if (normalizar(dados[i][1]) === nomeBusca) {
+        Logger.log("Aluno já existe: " + nome);
+        return;
+      }
+    }
+
+    // 🆔 ID sequencial
+    const ultimaLinha = aba.getLastRow();
+    let novoNumero = 1;
+
+    if (ultimaLinha > 1) {
+      const ultimaId = aba.getRange(ultimaLinha, 1).getValue();
+      const match = String(ultimaId).match(/FAEDA-(\d+)/i);
+
+      if (match) {
+        novoNumero = parseInt(match[1], 10) + 1;
+      } else {
+        novoNumero = ultimaLinha;
+      }
+    }
+
+    const novaId = `FAEDA-${String(novoNumero).padStart(3, '0')}`;
+
+    // 📦 Linha no formato exato da sua tabela
+    const novoAluno = [
+      novaId,           // A - ID
+      nome,             // B
+      email,            // C
+      telefone,         // D
+      diaVencimento,    // E
+      plano,            // F
+      "EM ABERTO",      // G - Situação
+      valor,            // H
+      observacoes,      // I
+      tipo,             // J
+      dataCadastro      // K
+    ];
+
+    aba.appendRow(novoAluno);
+
+    // 🕒 Formatação da data
+    const linha = aba.getLastRow();
+    aba.getRange(linha, 11).setNumberFormat("dd/MM/yyyy HH:mm:ss");
+
+  } catch (err) {
+    Logger.log("Erro: " + err);
+  } finally {
+    lock.releaseLock();
+  }
+}

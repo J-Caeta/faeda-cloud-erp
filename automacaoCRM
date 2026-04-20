@@ -1,0 +1,299 @@
+// =========================================================================
+// GESTÃO VIA DESKTOP
+// =========================================================================
+const props = PropertiesService.getScriptProperties();
+
+const CONFIG = {
+  IDS: {
+    FINANCEIRO: props.getProperty('ID_BD_FINANCEIRO'),
+    ALUNOS: props.getProperty('ID_BD_ALUNOS'),
+    DESPESAS: props.getProperty('ID_DESPESAS_FAEDA')
+  },
+  ABAS: {
+    REGISTRO: "REGISTRAR PAGAMENTO",
+    ADMIN: "ADMINISTRAÇÃO",
+    EX_ALUNOS: "EX-ALUNOS",
+    ALUNOS_ATIVOS: "ALUNOS ATIVOS",
+    DASHBOARD: "DASHBOARD",
+    CONFIG: "CONFIG"
+  },
+  CELULAS: {
+    DATA_DASHBOARD: "K2",
+    SELECAO_ALUNO: "B10"
+  }
+};
+
+// =========================================================================
+// MENU
+// =========================================================================
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🔁 FORÇAR STATUS')
+    .addItem('Atualizar Situação do Aluno', 'atualizarStatusAlunos')
+    .addToUi();
+}
+
+// =========================================================================
+// GATILHO
+// =========================================================================
+function dispararPreenchimentoAutomatico(e) {
+  const aba = e.range.getSheet();
+  const celula = e.range;
+
+  if (
+    aba.getName() === CONFIG.ABAS.REGISTRO &&
+    celula.getA1Notation() === 'B3'
+  ) {
+    preencherDadosAutomaticos();
+  }
+}
+
+// =========================================================================
+// HELPERS
+// =========================================================================
+function getDadosDaPlanilhaAlunos() {
+  try {
+    const planilha = SpreadsheetApp.openById(CONFIG.IDS.ALUNOS);
+    const abaAtivos = planilha.getSheetByName(CONFIG.ABAS.ALUNOS_ATIVOS);
+
+    if (!abaAtivos) {
+      throw new Error(`Aba '${CONFIG.ABAS.ALUNOS_ATIVOS}' não encontrada`);
+    }
+
+    return {
+      planilha,
+      abaAtivos,
+      abaEx: planilha.getSheetByName(CONFIG.ABAS.EX_ALUNOS),
+      dados: abaAtivos.getDataRange().getValues()
+    };
+
+  } catch (e) {
+    Logger.log("Erro ao acessar planilha de alunos:", e);
+    SpreadsheetApp.getUi().alert(
+      "Erro ao acessar a planilha de alunos. Verifique URL e permissões."
+    );
+    return null;
+  }
+}
+
+function normalizarTexto(valor) {
+  return (valor || "").toString().trim().toLowerCase();
+}
+
+// =========================================================================
+// PREENCHIMENTO AUTOMÁTICO
+// =========================================================================
+function preencherDadosAutomaticos() {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = planilha.getSheetByName(CONFIG.ABAS.REGISTRO);
+
+  const nomeSelecionado = aba.getRange("B3").getValue();
+
+  if (!nomeSelecionado || nomeSelecionado === "Selecione um aluno") {
+    aba.getRange("C3:F3").clearContent();
+    return;
+  }
+
+  const dadosPlanilha = getDadosDaPlanilhaAlunos();
+  if (!dadosPlanilha) return;
+
+  const nomeBusca = normalizarTexto(nomeSelecionado);
+
+  for (let i = 1; i < dadosPlanilha.dados.length; i++) {
+    const linha = dadosPlanilha.dados[i];
+
+    if (normalizarTexto(linha[1]) === nomeBusca) {
+      const [ , , , , dia, plano, , valor, , vinculo ] = linha;
+
+      aba.getRange("C3").setValue(plano);
+      aba.getRange("D3").setValue(dia);
+      aba.getRange("E3").clearContent();
+
+      if (normalizarTexto(vinculo) === "consultoria") {
+        aba.getRange("E3").setValue(valor);
+      }
+
+      return;
+    }
+  }
+
+  planilha.toast(`Aluno '${nomeSelecionado}' não encontrado`, "Erro", 5);
+  aba.getRange("B3:E3").clearContent();
+}
+
+// =========================================================================
+// DESPESAS
+// =========================================================================
+function registrarDespesa() {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = planilha.getSheetByName(CONFIG.ABAS.ADMIN);
+
+  const dados = {
+    categoria: aba.getRange("B14").getValue(),
+    descricao: aba.getRange("B15").getValue(),
+    tipo: aba.getRange("B16").getValue(),
+    valor: aba.getRange("B17").getValue(),
+    pagamento: aba.getRange("B18").getValue(),
+    natureza: aba.getRange("B19").getValue(),
+    obs: aba.getRange("B20").getValue()
+  };
+
+  if (Object.values(dados).slice(0, 6).some(v => v === "")) {
+    SpreadsheetApp.getUi().alert("Preencha todos os campos obrigatórios.");
+    return;
+  }
+
+  const novaDespesa = [
+    new Date(),
+    dados.categoria,
+    dados.descricao,
+    dados.tipo,
+    dados.valor,
+    dados.pagamento,
+    dados.natureza,
+    dados.obs
+  ];
+
+  try {
+    const bd = SpreadsheetApp.openById(CONFIG.IDS.DESPESAS);
+    const abaDestino = bd.getSheetByName("DESPESAS");
+
+    if (!abaDestino) throw new Error("Aba DESPESAS não encontrada");
+
+    abaDestino.appendRow(novaDespesa);
+    aba.getRange("B14:B20").clearContent();
+
+    SpreadsheetApp.getUi().alert("✅ Despesa registrada!");
+  } catch (e) {
+    SpreadsheetApp.getUi().alert("Erro ao salvar: " + e.message);
+  }
+}
+
+// =========================================================================
+// CADASTRO ALUNO
+// =========================================================================
+function cadastrarNovoAluno() {
+  const dadosPlanilha = getDadosDaPlanilhaAlunos();
+  if (!dadosPlanilha) return;
+
+  const planilha = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = planilha.getSheetByName(CONFIG.ABAS.ADMIN);
+
+  const nome = aba.getRange("B2").getValue();
+  if (!nome) {
+    SpreadsheetApp.getUi().alert("Nome é obrigatório.");
+    return;
+  }
+
+  const dados = {
+    whatsapp: aba.getRange("B3").getValue(),
+    email: aba.getRange("B4").getValue(),
+    dia: aba.getRange("B5").getValue(),
+    plano: aba.getRange("B6").getValue(),
+    valor: aba.getRange("B7").getValue(),
+    tipo: aba.getRange("B8").getValue()
+  };
+
+  const novaId = gerarIdAluno(dadosPlanilha.abaAtivos);
+  const dataCadastro = new Date();
+
+  const novoAluno = [
+    novaId, nome, dados.email, dados.whatsapp,
+    dados.dia, dados.plano, "EM ABERTO",
+    dados.valor, "", dados.tipo, dataCadastro
+  ];
+
+  try {
+    dadosPlanilha.abaAtivos.appendRow(novoAluno);
+
+    const linha = dadosPlanilha.abaAtivos.getLastRow();
+    dadosPlanilha.abaAtivos.getRange(linha, 11)
+      .setNumberFormat("dd/MM/yyyy HH:mm:ss");
+
+    aba.getRange("B2:B8").clearContent();
+
+    planilha.toast(`${nome} cadastrado com sucesso!`);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert("Erro ao cadastrar: " + e.message);
+  }
+}
+
+function gerarIdAluno(aba) {
+  const ultimaLinha = aba.getLastRow();
+  if (ultimaLinha <= 1) return "FAEDA-001";
+
+  try {
+    const ultimaId = aba.getRange(ultimaLinha, 1).getValue();
+    const match = ultimaId.toString().match(/FAEDA-(\d+)/i);
+    const numero = match ? parseInt(match[1], 10) + 1 : ultimaLinha;
+
+    return `FAEDA-${numero.toString().padStart(3, '0')}`;
+  } catch {
+    return `FAEDA-${ultimaLinha.toString().padStart(3, '0')}`;
+  }
+}
+//===================================================================
+// DESATIVAR ALUNO
+//===================================================================
+function desativarAluno() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.IDS.ALUNOS);
+    const abaAtivos = ss.getSheetByName(CONFIG.ABAS.ALUNOS_ATIVOS);
+    let abaInativos = ss.getSheetByName("INATIVOS");
+
+    if (!abaAtivos) {
+      ui.alert("Erro: Aba de alunos ativos não encontrada.");
+      return;
+    }
+
+    // Cria aba INATIVOS se não existir
+    if (!abaInativos) {
+      abaInativos = ss.insertSheet("INATIVOS");
+    }
+
+    // 🔹 Pega aluno da aba ADMIN
+    const planilhaCRM = SpreadsheetApp.getActiveSpreadsheet();
+    const abaAdmin = planilhaCRM.getSheetByName(CONFIG.ABAS.ADMIN);
+    const nomeSelecionado = abaAdmin.getRange(CONFIG.CELULAS.SELECAO_ALUNO).getValue();
+
+    if (!nomeSelecionado) {
+      ui.alert("Selecione um aluno para desativar.");
+      return;
+    }
+
+    const nomeBusca = normalizarTexto(nomeSelecionado);
+    const dados = abaAtivos.getDataRange().getValues();
+
+    for (let i = dados.length - 1; i >= 1; i--) {
+      const linha = dados[i];
+      const nomeLinha = normalizarTexto(linha[1]); // Coluna B
+
+      if (nomeLinha === nomeBusca) {
+
+        // 🔄 Move para INATIVOS
+        abaInativos.appendRow(linha);
+
+        // ❌ Remove de ATIVOS
+        abaAtivos.deleteRow(i + 1);
+
+        // 🧹 Limpa seleção
+        abaAdmin.getRange(CONFIG.CELULAS.SELECAO_ALUNO).clearContent();
+
+        SpreadsheetApp.getActiveSpreadsheet().toast(
+          `Aluno ${nomeSelecionado} desativado com sucesso.`,
+          "Sucesso",
+          5
+        );
+
+        return;
+      }
+    }
+
+    ui.alert("Aluno não encontrado na lista de ativos.");
+
+  } catch (e) {
+    ui.alert("Erro ao desativar aluno: " + e.message);
+  }
+}
