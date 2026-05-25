@@ -10,7 +10,7 @@ function gerarRelatorioMensalPDF() {
   
   if (resposta.getSelectedButton() !== ui.Button.OK) return;
   
-  const mesAlvo = resposta.getResponseText().toLowerCase().trim();
+  const mesAlvo = resposta.getResponseText().toUpperCase().trim();
   if (mesAlvo === "") {
     ui.alert("Por favor, digite o nome de um mês.");
     return;
@@ -50,7 +50,7 @@ function gerarRelatorioMensalPDF() {
     
     for (let i = 1; i < dadosFin.length; i++) {
       const valor = dadosFin[i][INDEX_VALOR_ENTRADA];
-      const status = String(dadosFin[i][INDEX_STATUS_ENTRADA]).toLowerCase().trim();
+      const status = String(dadosFin[i][INDEX_STATUS_ENTRADA]).toUpperCase().trim();
       
       if (status === "pago" && !isNaN(valor) && valor !== "") {
         receitaTotal += Number(valor);
@@ -93,7 +93,7 @@ function gerarRelatorioMensalPDF() {
     for (let i = 1; i < dadosDesp.length; i++) {
       const dataRaw = dadosDesp[i][INDEX_DATA_DESPESA];
       const valorRaw = Number(dadosDesp[i][INDEX_VALOR_DESPESA] || 0);
-      const naturezaRaw = String(dadosDesp[i][INDEX_NATUREZA]).toLowerCase().trim();
+      const naturezaRaw = String(dadosDesp[i][INDEX_NATUREZA]).toUpperCase().trim();
       const descricaoRaw = String(dadosDesp[i][INDEX_DESCRICAO]); // Pega o nome
       
       if (dataRaw instanceof Date && dataRaw.getMonth() === mesNumero) {
